@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>局域网棋类对战</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部导航 -->
+    <header class="header">
+      <h1>🎮 局域网棋类对战</h1>
+      <div class="user-info">
+        <span id="nickname-display"></span>
+        <button id="change-name-btn" class="btn btn-small">改名</button>
+      </div>
+    </header>
+
+    <!-- 大厅页面 -->
+    <div id="lobby-page" class="page active">
+      <div class="lobby-container">
+        <div class="lobby-left">
+          <div class="section-title">
+            <h2>游戏房间</h2>
+            <button id="refresh-rooms-btn" class="btn btn-small">刷新</button>
+          </div>
+          <div id="room-list" class="room-list">
+            <div class="empty-tip">暂无房间，创建一个吧！</div>
+          </div>
+        </div>
+        <div class="lobby-right">
+          <h2>创建房间</h2>
+          <div class="game-select">
+            <label>选择游戏：</label>
+            <select id="game-type-select">
+              <option value="gomoku">五子棋</option>
+              <option value="chess">象棋</option>
+            </select>
+          </div>
+          <button id="create-room-btn" class="btn btn-primary">创建房间</button>
+          <div class="join-section">
+            <h3>加入房间</h3>
+            <input id="room-id-input" type="text" placeholder="输入房间ID">
+            <div class="role-select">
+              <label class="role-option">
+                <input type="radio" name="role" value="player" checked> 参与
+              </label>
+              <label class="role-option">
+                <input type="radio" name="role" value="spectator"> 观战
+              </label>
+            </div>
+            <button id="join-room-btn" class="btn btn-primary">加入</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 游戏页面 -->
+    <div id="game-page" class="page">
+      <div class="game-container">
+        <div class="game-sidebar">
+          <div class="room-info">
+            <h3>房间信息</h3>
+            <p>房间ID: <span id="room-id-display" class="mono"></span></p>
+            <p>游戏: <span id="game-type-display"></span></p>
+            <p>状态: <span id="game-status-display"></span></p>
+            <div class="room-desc-section">
+              <p>简介:</p>
+              <div id="room-desc-display" class="room-desc-text">暂无简介</div>
+              <div id="room-desc-edit" class="room-desc-edit" style="display:none">
+                <input id="room-desc-input" type="text" maxlength="100" placeholder="输入房间简介...">
+                <div class="room-desc-btns">
+                  <button id="desc-cancel-btn" class="btn btn-small">取消</button>
+                  <button id="desc-save-btn" class="btn btn-small btn-primary">保存</button>
+                </div>
+              </div>
+              <button id="desc-edit-btn" class="btn btn-small" style="display:none">编辑简介</button>
+            </div>
+          </div>
+          <div class="players-panel">
+            <h3>玩家</h3>
+            <div id="players-list"></div>
+          </div>
+          <div class="spectators-panel">
+            <h3>观战 (<span id="spectator-count">0</span>)</h3>
+            <div id="spectators-list"></div>
+          </div>
+          <div class="game-actions">
+            <button id="start-game-btn" class="btn btn-primary" style="display:none">开始游戏</button>
+            <label id="self-play-label" class="self-play-toggle" style="display:none">
+              <input type="checkbox" id="self-play-check"> 自己与自己对弈
+            </label>
+            <button id="leave-room-btn" class="btn btn-danger">离开房间</button>
+            <button id="restart-btn" class="btn btn-primary" style="display:none">再来一局</button>
+          </div>
+        </div>
+        <div class="game-board-area">
+          <div id="turn-indicator" class="turn-indicator"></div>
+          <canvas id="game-canvas" width="600" height="600"></canvas>
+          <div id="game-result" class="game-result" style="display:none"></div>
+        </div>
+        <div class="chat-panel">
+          <h3>💬 房间评论</h3>
+          <div id="chat-messages" class="chat-messages"></div>
+          <div class="chat-input-area">
+            <input id="chat-input" type="text" maxlength="200" placeholder="说点什么...">
+            <button id="chat-send-btn" class="btn btn-primary btn-small">发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 消息提示 -->
+    <div id="toast" class="toast"></div>
+
+    <!-- 改名弹窗 -->
+    <div id="name-modal" class="modal" style="display:none">
+      <div class="modal-content">
+        <h3>设置昵称</h3>
+        <input id="name-input" type="text" maxlength="20" placeholder="输入你的昵称">
+        <div class="modal-actions">
+          <button id="name-cancel-btn" class="btn">取消</button>
+          <button id="name-confirm-btn" class="btn btn-primary">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 创建房间简介弹窗 -->
+    <div id="desc-modal" class="modal" style="display:none">
+      <div class="modal-content">
+        <h3>设置房间简介</h3>
+        <textarea id="desc-modal-input" maxlength="100" rows="3" placeholder="输入房间简介（可选）..."></textarea>
+        <div class="modal-actions">
+          <button id="desc-modal-skip" class="btn">跳过</button>
+          <button id="desc-modal-confirm" class="btn btn-primary">创建房间</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/shared/chess-logic.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

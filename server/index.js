@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const os = require('os');
 const ChessLogic = require('../shared/chess-logic');
+const ReversiLogic = require('../shared/reversi-logic');
 
 const app = express();
 const server = http.createServer(app);
@@ -30,6 +31,7 @@ function createRoom(roomId, gameType, hostName) {
     spectators: [], // { id, name }
     board: null,
     currentTurn: null, // 当前回合玩家id
+    currentTurnIdx: 0, // 当前回合玩家索引（selfPlay时两个玩家id相同，需按索引追踪）
     status: 'waiting', // waiting | playing | finished
     winner: null,
     lastMove: null,
@@ -37,6 +39,7 @@ function createRoom(roomId, gameType, hostName) {
     selfPlay: false,
     description: '',
     emptySince: null,
+    moveHistory: [],
     createdAt: Date.now()
   };
 }
@@ -44,6 +47,12 @@ function createRoom(roomId, gameType, hostName) {
 function createGomokuBoard() {
   return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(0));
   // 0=空, 1=黑, 2=白
+}
+
+function createBoardForType(gameType) {
+  if (gameType === 'chess') return ChessLogic.createBoard();
+  if (gameType === 'reversi') return ReversiLogic.createBoard();
+  return createGomokuBoard();
 }
 
 // 五子棋胜负判断
@@ -116,10 +125,10 @@ function getRoomState(room, playerId) {
       }
     }
   }
-  // selfPlay模式下，myColor根据当前回合动态切换
+  // selfPlay模式下，myColor根据当前回合索引动态切换
   let myColor = player ? player.color : null;
   if (room.selfPlay && player && room.players.length === 2) {
-    myColor = room.currentTurn === player.id ? player.color : (player.color === 1 ? 2 : 1);
+    myColor = room.players[room.currentTurnIdx].color;
   }
   return {
     roomId: room.id,
@@ -231,10 +240,12 @@ io.on('connection', (socket) => {
       room.players.push({ id: room.players[0].id, name: room.players[0].name, color: 2, isVirtual: true });
     }
 
-    room.board = room.gameType === 'chess' ? ChessLogic.createBoard() : createGomokuBoard();
+    room.board = createBoardForType(room.gameType);
     room.status = 'playing';
+    room.currentTurnIdx = 0;
     room.currentTurn = room.players[0].id;
     room.lastMove = null;
+    room.moveHistory = [];
     room.inCheck = false;
     io.to(room.id).emit('chat-message', { name: '系统', text: '游戏开始！', time: Date.now(), system: true });
     broadcastRoomState(room);
@@ -264,10 +275,10 @@ io.on('connection', (socket) => {
     if (!player) return;
 
     if (room.gameType === 'chess') {
-      // 象棋走子（selfPlay时根据当前回合决定颜色）
+      // 象棋走子（selfPlay时根据当前回合索引决定颜色）
       let color;
       if (room.selfPlay && room.players.length === 2) {
-        color = room.currentTurn === room.players[0].id ? 'red' : 'black';
+        color = room.currentTurnIdx === 0 ? 'red' : 'black';
       } else {
         color = player.color === 1 ? 'red' : 'black';
       }
@@ -280,9 +291,12 @@ io.on('connection', (socket) => {
         return;
       }
       // 执行走子
-      room.board[row][col] = room.board[fromRow][fromCol];
+      const movedPiece = room.board[fromRow][fromCol];
+      const capturedPiece = room.board[row][col];
+      room.board[row][col] = movedPiece;
       room.board[fromRow][fromCol] = null;
       room.lastMove = { from: [fromRow, fromCol], to: [row, col] };
+      room.moveHistory.push({ type: 'chess', piece: movedPiece, fromRow, fromCol, toRow: row, toCol: col, captured: capturedPiece });
 
       // 检查是否将杀
       const oppColor = color === 'red' ? 'black' : 'red';
@@ -295,8 +309,54 @@ io.on('connection', (socket) => {
         room.winner = socket.id;
       } else {
         room.inCheck = ChessLogic.isInCheck(room.board, oppColor);
-        const otherPlayer = room.players.find(p => p.id !== socket.id);
-        room.currentTurn = otherPlayer.id;
+        // 切换回合（selfPlay时两个玩家id相同，必须按索引切换）
+        room.currentTurnIdx = (room.currentTurnIdx + 1) % room.players.length;
+        room.currentTurn = room.players[room.currentTurnIdx].id;
+      }
+    } else if (room.gameType === 'reversi') {
+      // 黑白棋落子
+      if (row < 0 || row >= ReversiLogic.SIZE || col < 0 || col >= ReversiLogic.SIZE) return;
+      // selfPlay时根据当前回合索引决定颜色
+      let pieceColor = player.color;
+      if (room.selfPlay && room.players.length === 2) {
+        pieceColor = room.players[room.currentTurnIdx].color;
+      }
+      const flips = ReversiLogic.getFlipped(room.board, row, col, pieceColor);
+      if (flips.length === 0) {
+        socket.emit('error-msg', '非法落子');
+        return;
+      }
+      // 执行落子并翻转
+      room.board[row][col] = pieceColor;
+      for (const [fr, fc] of flips) {
+        room.board[fr][fc] = pieceColor;
+      }
+      room.lastMove = { from: null, to: [row, col] };
+      room.moveHistory.push({ type: 'reversi', row, col, color: pieceColor, flips: flips.map(f => [f[0], f[1]]) });
+
+      // 检查终局
+      if (ReversiLogic.isGameOver(room.board)) {
+        room.status = 'finished';
+        const winnerColor = ReversiLogic.getWinner(room.board);
+        if (winnerColor === 0) {
+          room.winner = null; // 平局
+        } else {
+          // 找到对应颜色的玩家
+          const winnerPlayer = room.players.find(p => p.color === winnerColor);
+          room.winner = winnerPlayer ? winnerPlayer.id : null;
+        }
+      } else {
+        // 切换回合
+        room.currentTurnIdx = (room.currentTurnIdx + 1) % room.players.length;
+        room.currentTurn = room.players[room.currentTurnIdx].id;
+        // 检查对方是否有合法走法，无则跳过
+        const nextColor = room.players[room.currentTurnIdx].color;
+        if (ReversiLogic.getValidMoves(room.board, nextColor).length === 0) {
+          // 对方无合法走法，跳过回合
+          room.currentTurnIdx = (room.currentTurnIdx + 1) % room.players.length;
+          room.currentTurn = room.players[room.currentTurnIdx].id;
+          io.to(room.id).emit('chat-message', { name: '系统', text: '对方无合法走法，跳过回合', time: Date.now(), system: true });
+        }
       }
     } else {
       // 五子棋落子
@@ -305,12 +365,13 @@ io.on('connection', (socket) => {
         socket.emit('error-msg', '该位置已有棋子');
         return;
       }
-      // selfPlay时根据当前回合决定颜色
+      // selfPlay时根据当前回合索引决定颜色
       let pieceColor = player.color;
       if (room.selfPlay && room.players.length === 2) {
-        pieceColor = room.currentTurn === room.players[0].id ? room.players[0].color : (room.players[0].color === 1 ? 2 : 1);
+        pieceColor = room.players[room.currentTurnIdx].color;
       }
       room.board[row][col] = pieceColor;
+      room.moveHistory.push({ type: 'gomoku', row, col, color: pieceColor });
       if (checkGomokuWin(room.board, row, col, pieceColor)) {
         room.status = 'finished';
         room.winner = socket.id;
@@ -318,8 +379,9 @@ io.on('connection', (socket) => {
         room.status = 'finished';
         room.winner = null;
       } else {
-        const otherPlayer = room.players.find(p => p.id !== socket.id);
-        room.currentTurn = otherPlayer.id;
+        // 切换回合（selfPlay时两个玩家id相同，必须按索引切换）
+        room.currentTurnIdx = (room.currentTurnIdx + 1) % room.players.length;
+        room.currentTurn = room.players[room.currentTurnIdx].id;
       }
     }
 
@@ -338,14 +400,96 @@ io.on('connection', (socket) => {
     if (!room.selfPlay) {
       room.players = room.players.filter(p => !p.isVirtual);
     }
-    room.board = room.gameType === 'chess' ? ChessLogic.createBoard() : createGomokuBoard();
+    room.board = createBoardForType(room.gameType);
     room.status = 'playing';
     room.winner = null;
     room.lastMove = null;
+    room.moveHistory = [];
     room.inCheck = false;
+    room.currentTurnIdx = 0;
     room.currentTurn = room.players[0].id;
     broadcastRoomState(room);
     broadcastRoomList();
+  });
+
+  // 投降
+  socket.on('surrender', () => {
+    const room = rooms.get(currentRoom);
+    if (!room || room.status !== 'playing') return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+    room.status = 'finished';
+    const opponent = room.players.find(p => p.id !== socket.id);
+    room.winner = opponent ? opponent.id : null;
+    io.to(room.id).emit('chat-message', { name: '系统', text: `${player.name} 投降了！${opponent ? opponent.name + ' 获胜！' : ''}`, time: Date.now(), system: true });
+    broadcastRoomState(room);
+    broadcastRoomList();
+  });
+
+  // 请求悔棋
+  socket.on('request-undo', () => {
+    const room = rooms.get(currentRoom);
+    if (!room || room.status !== 'playing') return;
+    if (room.moveHistory.length === 0) { socket.emit('error-msg', '没有可以悔的棋'); return; }
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+    const opponent = room.players.find(p => p.id !== socket.id);
+    if (!opponent || opponent.isVirtual) {
+      // 自对弈模式直接悔棋
+      const lastMove = room.moveHistory.pop();
+      if (lastMove.type === 'gomoku') {
+        room.board[lastMove.row][lastMove.col] = 0;
+      } else if (lastMove.type === 'reversi') {
+        room.board[lastMove.row][lastMove.col] = 0;
+        for (const [fr, fc] of lastMove.flips) { room.board[fr][fc] = lastMove.color === 1 ? 2 : 1; }
+      } else if (lastMove.type === 'chess') {
+        room.board[lastMove.fromRow][lastMove.fromCol] = lastMove.piece;
+        room.board[lastMove.toRow][lastMove.toCol] = lastMove.captured;
+      }
+      room.currentTurnIdx = (room.currentTurnIdx - 1 + room.players.length) % room.players.length;
+      room.currentTurn = room.players[room.currentTurnIdx].id;
+      room.lastMove = null;
+      io.to(room.id).emit('chat-message', { name: '系统', text: '悔棋成功', time: Date.now(), system: true });
+      broadcastRoomState(room);
+      return;
+    }
+    room.undoRequesterId = socket.id;
+    const requesterSocket = io.sockets.sockets.get(socket.id);
+    const opponentSocket = io.sockets.sockets.get(opponent.id);
+    if (opponentSocket) opponentSocket.emit('undo-request', { requesterName: player.name });
+    if (requesterSocket) requesterSocket.emit('undo-wait', { targetName: opponent.name });
+  });
+
+  // 悔棋回应
+  socket.on('undo-response', ({ accept }) => {
+    const room = rooms.get(currentRoom);
+    if (!room || !room.undoRequesterId) return;
+    const requesterId = room.undoRequesterId;
+    const responder = room.players.find(p => p.id === socket.id);
+    const requester = room.players.find(p => p.id === requesterId);
+    if (!responder || !requester) return;
+    if (accept) {
+      const lastMove = room.moveHistory.pop();
+      if (lastMove.type === 'gomoku') {
+        room.board[lastMove.row][lastMove.col] = 0;
+      } else if (lastMove.type === 'reversi') {
+        room.board[lastMove.row][lastMove.col] = 0;
+        for (const [fr, fc] of lastMove.flips) { room.board[fr][fc] = lastMove.color === 1 ? 2 : 1; }
+      } else if (lastMove.type === 'chess') {
+        room.board[lastMove.fromRow][lastMove.fromCol] = lastMove.piece;
+        room.board[lastMove.toRow][lastMove.toCol] = lastMove.captured;
+      }
+      room.currentTurnIdx = (room.currentTurnIdx - 1 + room.players.length) % room.players.length;
+      room.currentTurn = room.players[room.currentTurnIdx].id;
+      room.lastMove = null;
+      io.to(room.id).emit('chat-message', { name: '系统', text: `${responder.name} 同意悔棋`, time: Date.now(), system: true });
+      io.to(room.id).emit('undo-result', { accepted: true });
+    } else {
+      io.to(room.id).emit('chat-message', { name: '系统', text: `${responder.name} 拒绝了悔棋请求`, time: Date.now(), system: true });
+      io.to(room.id).emit('undo-result', { accepted: false });
+    }
+    room.undoRequesterId = null;
+    broadcastRoomState(room);
   });
 
   // 编辑房间简介

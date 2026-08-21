@@ -160,7 +160,8 @@ const ChessLogic = {
 
   // 找到指定颜色的将/帅位置
   findGeneral(board, color) {
-    const target = color + '_king';
+    const prefix = color === 'red' ? 'r' : 'b';
+    const target = prefix + '_king';
     for (let r = 0; r < this.ROWS; r++) {
       for (let c = 0; c < this.COLS; c++) {
         if (board[r][c] === target) return [r, c];

@@ -36,6 +36,7 @@
             <select id="game-type-select">
               <option value="gomoku">五子棋</option>
               <option value="chess">象棋</option>
+              <option value="reversi">黑白棋</option>
             </select>
           </div>
           <button id="create-room-btn" class="btn btn-primary">创建房间</button>
@@ -93,6 +94,10 @@
             </label>
             <button id="leave-room-btn" class="btn btn-danger">离开房间</button>
             <button id="restart-btn" class="btn btn-primary" style="display:none">再来一局</button>
+            <div class="game-actions-row">
+              <button id="surrender-btn" class="btn btn-danger btn-small" style="display:none">🏳️ 投降</button>
+              <button id="undo-btn" class="btn btn-small" style="display:none">↩️ 悔棋</button>
+            </div>
           </div>
         </div>
         <div class="game-board-area">
@@ -106,6 +111,26 @@
           <div class="chat-input-area">
             <input id="chat-input" type="text" maxlength="200" placeholder="说点什么...">
             <button id="chat-send-btn" class="btn btn-primary btn-small">发送</button>
+          </div>
+          <div class="quick-chat-section">
+            <div class="quick-chat-header" id="quick-chat-toggle">⚡ 快捷语句 <span class="quick-chat-arrow">▲</span></div>
+            <div class="quick-chat-list" id="quick-chat-list">
+              <button class="quick-chat-btn" data-text="你确定你会下棋吗？">你确定你会下棋吗？</button>
+              <button class="quick-chat-btn" data-text="就这？就这？就这？">就这？就这？就这？</button>
+              <button class="quick-chat-btn" data-text="我奶奶都比你下得好">我奶奶都比你下得好</button>
+              <button class="quick-chat-btn" data-text="你这棋艺，令人窒息">你这棋艺，令人窒息</button>
+              <button class="quick-chat-btn" data-text="别急，让我先笑一会儿">别急，让我先笑一会儿</button>
+              <button class="quick-chat-btn" data-text="承让承让，不好意思">承让承让，不好意思</button>
+              <button class="quick-chat-btn" data-text="你走这步的时候想了多久？">你走这步的时候想了多久？</button>
+              <button class="quick-chat-btn" data-text="厉害厉害，我差点就赢了">厉害厉害，我差点就赢了</button>
+              <button class="quick-chat-btn" data-text="稳住，我们能赢！才怪">稳住，我们能赢！才怪</button>
+              <button class="quick-chat-btn" data-text="这波啊，这波是肉蛋葱鸡">这波啊，这波是肉蛋葱鸡</button>
+              <button class="quick-chat-btn" data-text="你的棋路，我属实看不懂">你的棋路，我属实看不懂</button>
+              <button class="quick-chat-btn" data-text="再来一局，我让你先走">再来一局，我让你先走</button>
+              <button class="quick-chat-btn" data-text="下棋嘛，开心就好（才怪）">下棋嘛，开心就好（才怪）</button>
+              <button class="quick-chat-btn" data-text="你这操作，我直接笑出声">你这操作，我直接笑出声</button>
+              <button class="quick-chat-btn" data-text="GG！...骗你的，还没结束">GG！...骗你的，还没结束</button>
+            </div>
           </div>
         </div>
       </div>
@@ -137,10 +162,45 @@
         </div>
       </div>
     </div>
+    <!-- 悔棋请求弹窗（对方视角） -->
+    <div id="undo-request-modal" class="modal" style="display:none">
+      <div class="modal-content">
+        <h3>↩️ 悔棋请求</h3>
+        <p id="undo-request-text"></p>
+        <div class="modal-actions">
+          <button id="undo-req-reject-btn" class="btn">拒绝</button>
+          <button id="undo-req-accept-btn" class="btn btn-primary">同意</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 等待悔棋回应弹窗（请求方视角） -->
+    <div id="undo-wait-modal" class="modal" style="display:none">
+      <div class="modal-content">
+        <h3>⏳ 等待回应</h3>
+        <p id="undo-wait-text"></p>
+        <div class="modal-actions">
+          <button id="undo-wait-cancel-btn" class="btn">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 投降确认弹窗 -->
+    <div id="surrender-modal" class="modal" style="display:none">
+      <div class="modal-content">
+        <h3>🏳️ 确认投降</h3>
+        <p>确定要投降吗？对手将获胜。</p>
+        <div class="modal-actions">
+          <button id="surrender-cancel-btn" class="btn">取消</button>
+          <button id="surrender-confirm-btn" class="btn btn-danger">确认投降</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/shared/chess-logic.js"></script>
+  <script src="/shared/reversi-logic.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

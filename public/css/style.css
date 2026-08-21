@@ -401,6 +401,15 @@ body {
   width: 100%;
 }
 
+.game-actions-row {
+  display: flex;
+  gap: 8px;
+}
+
+.game-actions-row .btn {
+  flex: 1;
+}
+
 .self-play-toggle {
   display: flex;
   align-items: center;
@@ -552,6 +561,83 @@ body {
   border-color: var(--accent);
 }
 
+/* 快捷语句 */
+.quick-chat-section {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.quick-chat-header {
+  font-size: 12px;
+  color: var(--warning);
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.quick-chat-header:hover {
+  color: var(--accent-hover);
+}
+
+.quick-chat-arrow {
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
+.quick-chat-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+  transition: max-height 0.3s ease, opacity 0.3s ease;
+}
+
+.quick-chat-list.collapsed {
+  max-height: 0;
+  overflow: hidden;
+  margin-top: 0;
+  opacity: 0;
+}
+
+.quick-chat-list::-webkit-scrollbar {
+  width: 3px;
+}
+
+.quick-chat-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.quick-chat-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.quick-chat-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  transform: scale(1.05);
+}
+
+.quick-chat-btn:active {
+  transform: scale(0.95);
+}
+
 /* Toast */
 .toast {
   position: fixed;
@@ -635,6 +721,13 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.modal-content p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  line-height: 1.5;
 }
 
 /* 响应式 */

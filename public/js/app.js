@@ -18,6 +18,8 @@
   const startGameBtn = $('#start-game-btn');
   const selfPlayLabel = $('#self-play-label');
   const selfPlayCheck = $('#self-play-check');
+  const surrenderBtn = $('#surrender-btn');
+  const undoBtn = $('#undo-btn');
 
   // 状态
   let mySocketId = null;
@@ -44,6 +46,12 @@
   let selectedPiece = null; // {row, col}
   let currentValidMoves = []; // [[r,c], ...]
 
+  // 黑白棋常量
+  const REVERSI_SIZE = 8;
+  const REVERSI_CANVAS = 520;
+  const REVERSI_PADDING = 20;
+  const REVERSI_CELL = (REVERSI_CANVAS - REVERSI_PADDING * 2) / REVERSI_SIZE;
+
   // 初始化
   nicknameDisplay.textContent = myName;
 
@@ -69,6 +77,9 @@
     if (state.gameType === 'chess') {
       canvas.width = CHESS_CANVAS_W;
       canvas.height = CHESS_CANVAS_H;
+    } else if (state.gameType === 'reversi') {
+      canvas.width = REVERSI_CANVAS;
+      canvas.height = REVERSI_CANVAS;
     } else {
       canvas.width = GOMOKU_CANVAS;
       canvas.height = GOMOKU_CANVAS;
@@ -92,6 +103,24 @@
     } else {
       addChatMessage(name, text, time);
     }
+  });
+
+  // 悔棋请求（对方视角）
+  socket.on('undo-request', ({ requesterName }) => {
+    $('#undo-request-text').textContent = `${requesterName} 请求悔棋，是否同意？`;
+    $('#undo-request-modal').style.display = 'flex';
+  });
+
+  // 等待悔棋回应（请求方视角）
+  socket.on('undo-wait', ({ targetName }) => {
+    $('#undo-wait-text').textContent = `已向 ${targetName} 发送悔棋请求，等待回应...`;
+    $('#undo-wait-modal').style.display = 'flex';
+  });
+
+  // 悔棋结果
+  socket.on('undo-result', ({ accepted }) => {
+    $('#undo-wait-modal').style.display = 'none';
+    if (!accepted) showToast('对方拒绝了悔棋请求');
   });
 
   // ==================== 页面切换 ====================
@@ -118,7 +147,7 @@
       return;
     }
     roomListEl.innerHTML = rooms.map(room => {
-      const gameName = room.gameType === 'gomoku' ? '五子棋' : '象棋';
+      const gameName = { gomoku: '五子棋', chess: '象棋', reversi: '黑白棋' }[room.gameType] || room.gameType;
       const statusText = { waiting: '等待中', playing: '对局中', finished: '已结束' }[room.status];
       const descHtml = room.description ? `<div class="room-card-desc">“${room.description}”</div>` : '';
       return `
@@ -153,7 +182,7 @@
 
     // 房间信息
     $('#room-id-display').textContent = state.roomId;
-    $('#game-type-display').textContent = state.gameType === 'gomoku' ? '五子棋' : '象棋';
+    $('#game-type-display').textContent = { gomoku: '五子棋', chess: '象棋', reversi: '黑白棋' }[state.gameType] || state.gameType;
     const statusMap = { waiting: '等待玩家加入', playing: '对局中', finished: '已结束' };
     $('#game-status-display').textContent = statusMap[state.status] || state.status;
 
@@ -181,15 +210,23 @@
         `;
       }).join('');
     } else {
+      // 五子棋和黑白棋都用黑/白
       playersList.innerHTML = state.players.map(p => {
         const colorClass = p.color === 1 ? 'black' : 'white';
         const colorName = p.color === 1 ? '黑棋' : '白棋';
         const isTurn = state.currentTurn === p.id && state.status === 'playing';
         const isMe = p.id === mySocketId;
+        // 黑白棋显示当前子数
+        let pieceInfo = '';
+        if (state.gameType === 'reversi' && state.board) {
+          const counts = ReversiLogic.countPieces(state.board);
+          const myCount = p.color === 1 ? counts.black : counts.white;
+          pieceInfo = ` [${myCount}子]`;
+        }
         return `
           <div class="player-item">
             <span class="color-dot ${colorClass}"></span>
-            <span>${p.name} (${colorName})${isMe ? ' [我]' : ''}</span>
+            <span>${p.name} (${colorName}${pieceInfo})${isMe ? ' [我]' : ''}</span>
             ${isTurn ? '<span class="turn-badge">思考中</span>' : ''}
           </div>
         `;
@@ -233,6 +270,15 @@
       startGameBtn.style.display = 'none';
     }
 
+    // 投降和悔棋按钮
+    if (state.status === 'playing' && state.myRole === 'player') {
+      surrenderBtn.style.display = 'block';
+      undoBtn.style.display = 'block';
+    } else {
+      surrenderBtn.style.display = 'none';
+      undoBtn.style.display = 'none';
+    }
+
     // 自对弈开关（仅等待中且只有1个参与者时显示）
     if (state.status === 'waiting' && state.myRole === 'player' && state.players.length === 1) {
       selfPlayLabel.style.display = 'flex';
@@ -268,7 +314,13 @@
           gameResult.innerHTML = `😔 你输了<div class="result-sub">${winnerPlayer ? winnerPlayer.name : '对手'} 获胜</div>`;
         }
       } else {
-        gameResult.innerHTML = `🤝 平局<div class="result-sub">棋盘已满</div>`;
+        const subText = state.gameType === 'reversi' ? '棋盘已满' : '棋盘已满';
+        gameResult.innerHTML = `🤝 平局<div class="result-sub">${subText}</div>`;
+      }
+      // 黑白棋显示最终子数
+      if (state.gameType === 'reversi' && state.board) {
+        const counts = ReversiLogic.countPieces(state.board);
+        gameResult.innerHTML += `<div class="result-sub" style="margin-top:8px">⚫ ${counts.black} : ${counts.white} ⚪</div>`;
       }
     } else {
       gameResult.style.display = 'none';
@@ -284,6 +336,8 @@
   function drawBoard(state) {
     if (state.gameType === 'chess') {
       drawChessBoard(state);
+    } else if (state.gameType === 'reversi') {
+      drawReversiBoard(state);
     } else {
       drawGomokuBoard(state);
     }
@@ -507,6 +561,130 @@
     ctx.fillRect(x - CHESS_CELL / 2, y - CHESS_CELL / 2, CHESS_CELL, CHESS_CELL);
   }
 
+  // ==================== 黑白棋绘制 ====================
+
+  function drawReversiBoard(state) {
+    const S = REVERSI_SIZE, P = REVERSI_PADDING, C = REVERSI_CELL, W = REVERSI_CANVAS;
+
+    // 绿色棋盘
+    ctx.fillStyle = '#2d8b46';
+    ctx.fillRect(0, 0, W, W);
+
+    // 网格线
+    ctx.strokeStyle = '#1a6b30';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= S; i++) {
+      const pos = P + i * C;
+      ctx.beginPath(); ctx.moveTo(P, pos); ctx.lineTo(P + S * C, pos); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(pos, P); ctx.lineTo(pos, P + S * C); ctx.stroke();
+    }
+
+    // 星位（4个角的小标记）
+    ctx.fillStyle = '#1a6b30';
+    for (const r of [2, 5]) {
+      for (const c of [2, 5]) {
+        ctx.beginPath();
+        ctx.arc(P + c * C + C / 2, P + r * C + C / 2, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // 棋子
+    if (state.board) {
+      for (let r = 0; r < S; r++) {
+        for (let c = 0; c < S; c++) {
+          if (state.board[r][c] !== 0) {
+            drawReversiPiece(r, c, state.board[r][c]);
+          }
+        }
+      }
+    }
+
+    // 上一步移动高亮
+    if (state.lastMove && state.lastMove.to) {
+      const [tr, tc] = state.lastMove.to;
+      const x = P + tc * C;
+      const y = P + tr * C;
+      ctx.strokeStyle = 'rgba(255, 255, 0, 0.7)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 2, y + 2, C - 4, C - 4);
+    }
+
+    // 合法位置提示（仅当轮到自己时）
+    if (state.myRole === 'player' && state.currentTurn === mySocketId && state.board) {
+      const myColor = state.myColor === 1 ? ReversiLogic.BLACK : ReversiLogic.WHITE;
+      const validMoves = ReversiLogic.getValidMoves(state.board, myColor);
+      for (const [r, c] of validMoves) {
+        const x = P + c * C + C / 2;
+        const y = P + r * C + C / 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawReversiPiece(row, col, color) {
+    const x = REVERSI_PADDING + col * REVERSI_CELL + REVERSI_CELL / 2;
+    const y = REVERSI_PADDING + row * REVERSI_CELL + REVERSI_CELL / 2;
+    const radius = REVERSI_CELL * 0.42;
+
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    if (color === ReversiLogic.BLACK) {
+      const g = ctx.createRadialGradient(x - 3, y - 3, 2, x, y, radius);
+      g.addColorStop(0, '#555');
+      g.addColorStop(1, '#111');
+      ctx.fillStyle = g;
+    } else {
+      const g = ctx.createRadialGradient(x - 3, y - 3, 2, x, y, radius);
+      g.addColorStop(0, '#fff');
+      g.addColorStop(1, '#ccc');
+      ctx.fillStyle = g;
+    }
+    ctx.fill();
+    ctx.strokeStyle = color === ReversiLogic.BLACK ? '#000' : '#999';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  function handleReversiClick(mx, my) {
+    if (roomState.currentTurn !== mySocketId) return;
+    const col = Math.floor((mx - REVERSI_PADDING) / REVERSI_CELL);
+    const row = Math.floor((my - REVERSI_PADDING) / REVERSI_CELL);
+    if (row >= 0 && row < REVERSI_SIZE && col >= 0 && col < REVERSI_SIZE) {
+      socket.emit('make-move', { row, col });
+    }
+  }
+
+  function handleReversiHover(mx, my) {
+    if (roomState.currentTurn !== mySocketId) {
+      canvas.style.cursor = 'default';
+      return;
+    }
+    const col = Math.floor((mx - REVERSI_PADDING) / REVERSI_CELL);
+    const row = Math.floor((my - REVERSI_PADDING) / REVERSI_CELL);
+    if (row >= 0 && row < REVERSI_SIZE && col >= 0 && col < REVERSI_SIZE) {
+      const myColor = roomState.myColor === 1 ? ReversiLogic.BLACK : ReversiLogic.WHITE;
+      if (ReversiLogic.isValidMove(roomState.board, row, col, myColor)) {
+        canvas.style.cursor = 'pointer';
+        drawReversiBoard(roomState);
+        // 绘制半透明预览
+        const x = REVERSI_PADDING + col * REVERSI_CELL + REVERSI_CELL / 2;
+        const y = REVERSI_PADDING + row * REVERSI_CELL + REVERSI_CELL / 2;
+        const radius = REVERSI_CELL * 0.42;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = myColor === ReversiLogic.BLACK ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)';
+        ctx.fill();
+        return;
+      }
+    }
+    canvas.style.cursor = 'default';
+    drawReversiBoard(roomState);
+  }
+
   // ==================== 点击事件处理 ====================
 
   canvas.addEventListener('click', (e) => {
@@ -521,6 +699,8 @@
 
     if (roomState.gameType === 'chess') {
       handleChessClick(mx, my);
+    } else if (roomState.gameType === 'reversi') {
+      handleReversiClick(mx, my);
     } else {
       handleGomokuClick(mx, my);
     }
@@ -596,6 +776,8 @@
 
     if (roomState.gameType === 'gomoku') {
       handleGomokuHover(mx, my);
+    } else if (roomState.gameType === 'reversi') {
+      handleReversiHover(mx, my);
     } else {
       handleChessHover(mx, my);
     }
@@ -808,6 +990,53 @@
   $('#chat-send-btn').addEventListener('click', sendChat);
   $('#chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendChat();
+  });
+
+  // 投降
+  surrenderBtn.addEventListener('click', () => {
+    $('#surrender-modal').style.display = 'flex';
+  });
+  $('#surrender-cancel-btn').addEventListener('click', () => {
+    $('#surrender-modal').style.display = 'none';
+  });
+  $('#surrender-confirm-btn').addEventListener('click', () => {
+    $('#surrender-modal').style.display = 'none';
+    socket.emit('surrender');
+  });
+
+  // 悔棋
+  undoBtn.addEventListener('click', () => {
+    socket.emit('request-undo');
+  });
+  $('#undo-req-accept-btn').addEventListener('click', () => {
+    $('#undo-request-modal').style.display = 'none';
+    socket.emit('undo-response', { accept: true });
+  });
+  $('#undo-req-reject-btn').addEventListener('click', () => {
+    $('#undo-request-modal').style.display = 'none';
+    socket.emit('undo-response', { accept: false });
+  });
+  $('#undo-wait-cancel-btn').addEventListener('click', () => {
+    $('#undo-wait-modal').style.display = 'none';
+  });
+
+  // 快捷语句：展开/折叠
+  const quickChatToggle = $('#quick-chat-toggle');
+  const quickChatList = $('#quick-chat-list');
+  const quickChatArrow = quickChatToggle.querySelector('.quick-chat-arrow');
+  quickChatToggle.addEventListener('click', () => {
+    quickChatList.classList.toggle('collapsed');
+    quickChatArrow.textContent = quickChatList.classList.contains('collapsed') ? '▼' : '▲';
+  });
+
+  // 快捷语句：点击发送
+  quickChatList.querySelectorAll('.quick-chat-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const text = btn.dataset.text;
+      if (text) {
+        socket.emit('chat-message', text);
+      }
+    });
   });
 
   // ==================== 工具函数 ====================

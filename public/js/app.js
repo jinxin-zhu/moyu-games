@@ -306,12 +306,15 @@
       if (state.winner) {
         const winnerPlayer = state.players.find(p => p.id === state.winner);
         const isMeWinner = state.winner === mySocketId;
+        const isSurrender = !!state.surrender;
         if (state.myRole === 'spectator') {
           gameResult.innerHTML = `🏆 ${winnerPlayer ? winnerPlayer.name : '未知'} 获胜！<div class="result-sub">对局结束</div>`;
         } else if (isMeWinner) {
-          gameResult.innerHTML = `🏆 你赢了！<div class="result-sub">恭喜获胜</div>`;
+          const subText = isSurrender ? '对手投降，你赢了' : '恭喜获胜';
+          gameResult.innerHTML = `🏆 你赢了！<div class="result-sub">${subText}</div>`;
         } else {
-          gameResult.innerHTML = `😔 你输了<div class="result-sub">${winnerPlayer ? winnerPlayer.name : '对手'} 获胜</div>`;
+          const subText = isSurrender ? '输一半' : `${winnerPlayer ? winnerPlayer.name : '对手'} 获胜`;
+          gameResult.innerHTML = `😔 你输了<div class="result-sub">${subText}</div>`;
         }
       } else {
         const subText = state.gameType === 'reversi' ? '棋盘已满' : '棋盘已满';

@@ -40,6 +40,7 @@ function createRoom(roomId, gameType, hostName) {
     description: '',
     emptySince: null,
     moveHistory: [],
+    surrender: null,
     createdAt: Date.now()
   };
 }
@@ -144,6 +145,7 @@ function getRoomState(room, playerId) {
     validMoves: validMoves,
     selfPlay: room.selfPlay,
     description: room.description,
+    surrender: room.surrender,
     canStart: room.status === 'waiting' && (room.players.length === 2 || (room.selfPlay && room.players.length >= 1)),
     myRole: player ? 'player' : (isSpectator ? 'spectator' : 'unknown'),
     myColor: myColor
@@ -405,6 +407,7 @@ io.on('connection', (socket) => {
     room.winner = null;
     room.lastMove = null;
     room.moveHistory = [];
+    room.surrender = null;
     room.inCheck = false;
     room.currentTurnIdx = 0;
     room.currentTurn = room.players[0].id;
@@ -421,7 +424,8 @@ io.on('connection', (socket) => {
     room.status = 'finished';
     const opponent = room.players.find(p => p.id !== socket.id);
     room.winner = opponent ? opponent.id : null;
-    io.to(room.id).emit('chat-message', { name: '系统', text: `${player.name} 投降了！${opponent ? opponent.name + ' 获胜！' : ''}`, time: Date.now(), system: true });
+    room.surrender = socket.id;
+    io.to(room.id).emit('chat-message', { name: '系统', text: `${player.name} 投降了，输一半！`, time: Date.now(), system: true });
     broadcastRoomState(room);
     broadcastRoomList();
   });
